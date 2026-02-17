@@ -1,6 +1,8 @@
 use mail_parser::{Message, MessagePart, MimeHeaders};
 use rustler::{Atom, Binary, Env, Error, NifResult, NifStruct, OwnedBinary, Term};
 use rustler::{Decoder, Encoder};
+use std::fs;
+use std::path::Path;
 
 mod atoms {
     rustler::atoms! {
@@ -70,6 +72,34 @@ fn get_attachments(message: &Message) -> Vec<Attachment> {
         .collect()
 }
 
+fn write_to_disk(attachments: &Vec<Attachment>, dest_dir: &str, prefix: &str) -> Result<Vec<String>, std::io::Error> {
+    // Ensure destination directory exists
+    fs::create_dir_all(dest_dir)?;
+    
+    let mut filenames = Vec::new();
+    
+    for attachment in attachments {
+        let filename = format!("{}{}", prefix, attachment.name);
+        let filepath = Path::new(dest_dir).join(&filename);
+        
+        match fs::write(&filepath, &attachment.content_bytes.0) {
+            Ok(()) => {
+                filenames.push(filename);
+            },
+            Err(err) => {
+                // Clean up all previously written files
+                for filename in filenames {
+                    let filepath = Path::new(dest_dir).join(&filename);
+                    let _ = fs::remove_file(filepath);
+                }
+                return Err(err);
+            }
+        }
+    }
+    
+    Ok(filenames)
+}
+
 #[rustler::nif]
 fn extract_nested_attachments(raw_message: &str) -> NifResult<(Atom, Vec<Attachment>)> {
     match Message::parse(raw_message.as_bytes()) {
@@ -78,4 +108,18 @@ fn extract_nested_attachments(raw_message: &str) -> NifResult<(Atom, Vec<Attachm
     }
 }
 
-rustler::init!("Elixir.MailParser", [extract_nested_attachments]);
+#[rustler::nif]
+fn extract_attachments_to_disk(raw_message: &str, dest_dir: &str, prefix: &str) -> NifResult<(Atom, Vec<String>)> {
+    match Message::parse(raw_message.as_bytes()) {
+        Some(message) => {
+            let attachments = get_attachments(&message);
+            match write_to_disk(&attachments, dest_dir, prefix) {
+                Ok(filenames) => Ok((atoms::ok(), filenames)),
+                Err(err) => Err(Error::Term(Box::new(format!("Failed to write to disk: {}", err))))
+            }
+        },
+        None => Err(Error::Atom("error")),
+    }
+}
+
+rustler::init!("Elixir.MailParser", [extract_nested_attachments, extract_attachments_to_disk]);
