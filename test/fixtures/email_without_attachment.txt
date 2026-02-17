@@ -1,0 +1,16 @@
+Date: Mon, 17 Feb 2026 10:00:00 +0000
+From: sender@example.com
+To: recipient@example.com
+Subject: Simple Email Without Attachment
+Message-ID: <12345@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Hello,
+
+This is a simple email message without any attachments.
+It contains only plain text content.
+
+Best regards,
+Test User

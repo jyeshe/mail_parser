@@ -6,7 +6,10 @@ use std::path::Path;
 
 mod atoms {
     rustler::atoms! {
-        ok
+        ok,
+        mime_types,
+        directory,
+        prefix
     }
 }
 
@@ -72,15 +75,59 @@ fn get_attachments(message: &Message) -> Vec<Attachment> {
         .collect()
 }
 
-fn write_to_disk(attachments: &Vec<Attachment>, dest_dir: &str, prefix: &str) -> Result<Vec<String>, std::io::Error> {
+fn get_mime_types_from_opts(opts: &[(Atom, Term)]) -> NifResult<Vec<String>> {
+    for (atom, term) in opts.iter() {
+        if *atom == atoms::mime_types() {
+            return term.decode::<Vec<String>>();
+        }
+    }
+    Ok(Vec::new())
+}
+
+fn get_directory_from_opts(opts: &[(Atom, Term)]) -> NifResult<String> {
+    for (atom, term) in opts.iter() {
+        if *atom == atoms::directory() {
+            return term.decode::<String>();
+        }
+    }
+    Ok(".".to_string()) // Default to current directory
+}
+
+fn get_prefix_from_opts(opts: &[(Atom, Term)]) -> NifResult<String> {
+    for (atom, term) in opts.iter() {
+        if *atom == atoms::prefix() {
+            return term.decode::<String>();
+        }
+    }
+    Ok("".to_string()) // Default to empty prefix
+}
+
+fn filter_by_mime_type(attachments: &Vec<Attachment>, mime_types: &[String]) -> Vec<Attachment> {
+    if mime_types.is_empty() {
+        return attachments.clone();
+    }
+    
+    attachments
+        .iter()
+        .filter(|attachment| {
+            match &attachment.content_type {
+                Some(content_type) => mime_types.contains(content_type),
+                None => false,
+            }
+        })
+        .cloned()
+        .collect()
+}
+
+fn write_to_disk(attachments: &Vec<Attachment>, directory: &str, prefix: &str) -> Result<Vec<String>, std::io::Error> {
     // Ensure destination directory exists
-    fs::create_dir_all(dest_dir)?;
+    fs::create_dir_all(directory)?;
     
     let mut filenames = Vec::new();
     
     for attachment in attachments {
         let filename = format!("{}{}", prefix, attachment.name);
-        let filepath = Path::new(dest_dir).join(&filename);
+        let filepath = Path::new(directory).join(&filename);
         
         match fs::write(&filepath, &attachment.content_bytes.0) {
             Ok(()) => {
@@ -89,7 +136,7 @@ fn write_to_disk(attachments: &Vec<Attachment>, dest_dir: &str, prefix: &str) ->
             Err(err) => {
                 // Clean up all previously written files
                 for filename in filenames {
-                    let filepath = Path::new(dest_dir).join(&filename);
+                    let filepath = Path::new(directory).join(&filename);
                     let _ = fs::remove_file(filepath);
                 }
                 return Err(err);
@@ -109,11 +156,19 @@ fn extract_nested_attachments(raw_message: &str) -> NifResult<(Atom, Vec<Attachm
 }
 
 #[rustler::nif]
-fn extract_attachments_to_disk(raw_message: &str, dest_dir: &str, prefix: &str) -> NifResult<(Atom, Vec<String>)> {
+fn extract_attachments_to_disk(raw_message: &str, opts: Term) -> NifResult<(Atom, Vec<String>)> {
+    // Try to decode as keyword list (list of tuples), fallback to empty list
+    let opts_list = opts.decode::<Vec<(Atom, Term)>>().unwrap_or_default();
+    
+    let mime_types = get_mime_types_from_opts(&opts_list)?;
+    let directory = get_directory_from_opts(&opts_list)?;
+    let prefix = get_prefix_from_opts(&opts_list)?;
+    
     match Message::parse(raw_message.as_bytes()) {
         Some(message) => {
             let attachments = get_attachments(&message);
-            match write_to_disk(&attachments, dest_dir, prefix) {
+            let filtered_attachments = filter_by_mime_type(&attachments, &mime_types);
+            match write_to_disk(&filtered_attachments, &directory, &prefix) {
                 Ok(filenames) => Ok((atoms::ok(), filenames)),
                 Err(err) => Err(Error::Term(Box::new(format!("Failed to write to disk: {}", err))))
             }

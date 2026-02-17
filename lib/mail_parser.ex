@@ -35,16 +35,37 @@ defmodule MailParser do
   def extract_nested_attachments(_raw_message), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Similar to extract_attachments/1 but writes the attachments to the dest_dir.
+  Similar to extract_attachments/1 but writes the attachments to an optional directory.
 
-  It returns filenames of the extracted attachments having the prefix prepended to them.
+  It returns filenames of the extracted attachments having an optional prefix prepended to them to avoid conflicts.
 
-  ### Example
+  ## Options
 
-      iex> MailParser.extract_attachments_to_disk(raw_message, "dir_1", "account-")
-      {:ok, ["account-example.pdf"}
+  * `:directory` - Directory to save attachments to. Defaults to current directory (".")
+  * `:prefix` - Prefix to prepend to filenames. Defaults to empty string ("")
+  * `:mime_types` - List of MIME types to filter attachments. Only attachments
+    matching at least one of these types will be saved. If not specified or empty,
+    all attachments are saved.
+
+  ### Examples
+
+      # Save all attachments to current directory with no prefix
+      iex> raw_message = "Date: Mon, 17 Feb 2026 10:00:00 +0000\\nFrom: test@example.com\\n\\nTest email"
+      iex> MailParser.extract_attachments_to_disk(raw_message, [])
+      {:ok, []}
+
+      # Save to specific directory with prefix (example with attachments)
+      # MailParser.extract_attachments_to_disk(email_with_attachments, directory: "dir_1", prefix: "account-")
+      # {:ok, ["account-example.pdf", "account-image.jpg"]}
+
+      # Filter by MIME types (example with attachments)
+      # MailParser.extract_attachments_to_disk(email_with_attachments,
+      #   directory: "dir_1",
+      #   prefix: "account-",
+      #   mime_types: ["application/pdf", "image/jpeg"])
+      # {:ok, ["account-example.pdf"]}
 
   """
-  @spec extract_attachments_to_disk(String.t(), String.t(), String.t()) :: {:ok, [Attachment.t()]} | :error
-  def extract_attachments_to_disk(_raw_message, _dest_dir, _prefix), do: :erlang.nif_error(:nif_not_loaded)
+  @spec extract_attachments_to_disk(String.t(), keyword()) :: {:ok, [String.t()]} | :error
+  def extract_attachments_to_disk(_raw_message, _opts \\ []), do: :erlang.nif_error(:nif_not_loaded)
 end
